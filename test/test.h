@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -22,7 +22,7 @@
 
 #define TEST_REPORT(t, s) do {      \
         t->tests++;                 \
-        if (s == TRUE)              \
+        if (s == true)              \
             t->success++;           \
         else                        \
             t->failure++;           \

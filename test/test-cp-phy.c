@@ -1,14 +1,10 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "test.h"
-
-int phy_build_packet_head(struct osdp_pd *pd, int id, uint8_t *buf, int maxlen);
-int phy_build_packet_tail(struct osdp_pd *pd, uint8_t *buf, int len, int maxlen);
-int phy_decode_packet(struct osdp_pd *pd, uint8_t *buf, int len);
 
 static int test_cp_build_packet(struct osdp_pd *p, uint8_t *buf, int len, int maxlen)
 {
@@ -22,13 +18,13 @@ static int test_cp_build_packet(struct osdp_pd *p, uint8_t *buf, int len, int ma
 	cmd_len = len;
 	memcpy(cmd_buf, buf, len);
 
-	if ((len = phy_build_packet_head(p, 0, buf, maxlen)) < 0) {
+	if ((len = osdp_phy_packet_init(p, buf, maxlen)) < 0) {
 		printf("failed to phy_build_packet_head\n");
 		return -1;
 	}
 	memcpy(buf + len, cmd_buf, cmd_len);
 	len += cmd_len;
-	if ((len = phy_build_packet_tail(p, buf, len, maxlen)) < 0) {
+	if ((len = osdp_phy_packet_finalize(p, buf, len, maxlen)) < 0) {
 		printf("failed to build command\n");
 		return -1;
 	}
@@ -38,7 +34,7 @@ static int test_cp_build_packet(struct osdp_pd *p, uint8_t *buf, int len, int ma
 int test_cp_build_packet_poll(struct osdp *ctx)
 {
 	int len;
-	struct osdp_pd *p = to_current_pd(ctx);
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
 	uint8_t packet[512] = { CMD_POLL };
 	uint8_t expected[] = { 0xff, 0x53, 0x65, 0x08, 0x00,
 		0x04, 0x60, 0x60, 0x90
@@ -56,7 +52,7 @@ int test_cp_build_packet_poll(struct osdp *ctx)
 int test_cp_build_packet_id(struct osdp *ctx)
 {
 	int len;
-	struct osdp_pd *p = to_current_pd(ctx);
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
 	uint8_t packet[512] = { CMD_ID, 0x00 };
 	uint8_t expected[] = { 0xff, 0x53, 0x65, 0x09, 0x00,
 		0x05, 0x61, 0x00, 0xe9, 0x4d
@@ -75,15 +71,14 @@ int test_cp_build_packet_id(struct osdp *ctx)
 int test_phy_decode_packet_ack(struct osdp *ctx)
 {
 	int len;
-	struct osdp_pd *p = to_current_pd(ctx);
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
 	uint8_t packet[128] = { 0xff, 0x53, 0xe5, 0x08, 0x00,
 		0x05, 0x40, 0xe3, 0xa5
 	};
 	uint8_t expected[] = { REPLY_ACK };
 
 	printf("Testing phy_decode_packet(REPLY_ACK) -- ");
-	if ((len = phy_decode_packet(p, packet, 9)) < 0) {
-		printf("error!\n");
+	if ((len = osdp_phy_decode_packet(p, packet, 9)) < 0) {
 		return -1;
 	}
 	CHECK_ARRAY(packet, len, expected);
@@ -108,7 +103,7 @@ int test_cp_phy_setup(struct test *t)
 		printf("   init failed!\n");
 		return -1;
 	}
-	set_current_pd(ctx, 0);
+	SET_CURRENT_PD(ctx, 0);
 	t->mock_data = (void *)ctx;
 	return 0;
 }

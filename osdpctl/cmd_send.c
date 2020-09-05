@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -11,6 +11,9 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+
+#include <utils/procutils.h>
+#include <utils/strutils.h>
 
 #include "common.h"
 
@@ -76,7 +79,7 @@ int handle_cmd_led(int argc, char *argv[], struct osdp_cmd_led *c)
 		c->temporary.off_count = 5;
 		c->temporary.on_color = color;
 		c->temporary.off_color = OSDP_LED_COLOR_NONE;
-		c->temporary.timer = (uint16_t)(10 * count);
+		c->temporary.timer_count = (uint16_t)(10 * count);
 	} else {
 		// infinite sequence.
 		c->permanent.control_code = 1;
@@ -122,12 +125,12 @@ int handle_cmd_buzzer(int argc, char *argv[], struct osdp_cmd_buzzer *c)
 	}
 
 	if (blink) {
-		c->tone_code = 2; // default tone
+		c->control_code = 2; // default tone
 		c->on_count = 5;
 		c->off_count = 5;
 		c->rep_count = count;
 	} else {
-		c->tone_code = (state == 0) ? 0 : 2; // no tone or default
+		c->control_code = (state == 0) ? 0 : 2; // no tone or default
 		c->on_count = 5;
 		c->off_count = 0;
 		c->rep_count = 0;
@@ -152,7 +155,7 @@ int handle_cmd_output(int argc, char *argv[], struct osdp_cmd_output *c)
 
 	c->output_no = out_no;
 	c->control_code = (state == 0) ? 1 : 2;
-	c->tmr_count = 0;
+	c->timer_count = 0;
 
 	return 0;
 }
@@ -170,7 +173,7 @@ int handle_cmd_text(int argc, char *argv[], struct osdp_cmd_text *c)
 	if (len > 32)
 		return -1;
 
-	c->cmd = 1;
+	c->control_code = 1;
 	c->length = len;
 	memcpy(c->data, argv[0], len);
 	return 0;
@@ -194,8 +197,8 @@ int handle_cmd_comset(int argc, char *argv[], struct osdp_cmd_comset *c)
 	    (baud != 9600 && baud != 38400 && baud != 115200))
 		return -1;
 
-	c->addr = (uint8_t)address;
-	c->baud = (uint32_t)baud;
+	c->address = (uint8_t)address;
+	c->baud_rate = (uint32_t)baud;
 
 	return 0;
 }
@@ -206,51 +209,50 @@ int cmd_handler_send(int argc, char *argv[], void *data)
 	struct config_s *c = data;
 	struct osdpctl_cmd mq_cmd;
 
-	if (argc < 1) {
-		printf ("Error: must pass a config file\n");
+	if (c->mode == CONFIG_MODE_PD) {
+		printf("Commands can be sent only to CP for now\n");
 		return -1;
 	}
-	if (argc < 3) {
+
+	if (argc < 2) {
 		printf("Error: PD offset/command is missing\n");
 		goto print_usage;
 	}
 
-	if (safe_atoi(argv[1], &offset)) {
+	if (safe_atoi(argv[0], &offset)) {
 		printf("Error: Invalid PD offset");
 		return -1;
 	}
 
-	config_parse(argv[0], c);
-
 	memset(&mq_cmd.cmd, 0, sizeof(struct osdp_cmd));
 	mq_cmd.offset = offset;
 
-	if (strcmp("led", argv[2]) == 0) {
+	if (strcmp("led", argv[1]) == 0) {
 		mq_cmd.id = OSDPCTL_CP_CMD_LED;
-		ret = handle_cmd_led(argc-3, argv+3, &mq_cmd.cmd.led);
+		ret = handle_cmd_led(argc-2, argv+2, &mq_cmd.cmd.led);
 	}
-	else if (strcmp("buzzer", argv[2]) == 0) {
+	else if (strcmp("buzzer", argv[1]) == 0) {
 		mq_cmd.id = OSDPCTL_CP_CMD_BUZZER;
-		ret = handle_cmd_buzzer(argc-3, argv+3, &mq_cmd.cmd.buzzer);
+		ret = handle_cmd_buzzer(argc-2, argv+2, &mq_cmd.cmd.buzzer);
 	}
-	else if (strcmp("output", argv[2]) == 0) {
+	else if (strcmp("output", argv[1]) == 0) {
 		mq_cmd.id = OSDPCTL_CP_CMD_OUTPUT;
-		ret = handle_cmd_output(argc-3, argv+3, &mq_cmd.cmd.output);
+		ret = handle_cmd_output(argc-2, argv+2, &mq_cmd.cmd.output);
 	}
-	else if (strcmp("text", argv[2]) == 0) {
+	else if (strcmp("text", argv[1]) == 0) {
 		mq_cmd.id = OSDPCTL_CP_CMD_TEXT;
-		ret = handle_cmd_text(argc-3, argv+3, &mq_cmd.cmd.text);
+		ret = handle_cmd_text(argc-2, argv+2, &mq_cmd.cmd.text);
 	}
-	else if (strcmp("comset", argv[2]) == 0) {
+	else if (strcmp("comset", argv[1]) == 0) {
 		mq_cmd.id = OSDPCTL_CP_CMD_COMSET;
-		ret = handle_cmd_comset(argc-3, argv+3, &mq_cmd.cmd.comset);
+		ret = handle_cmd_comset(argc-2, argv+2, &mq_cmd.cmd.comset);
 	}
-	else if (strcmp("status", argv[2]) == 0) {
+	else if (strcmp("status", argv[1]) == 0) {
 		mq_cmd.id = OSDPCTL_CMD_STATUS;
 		ret = 0;
 	}
 	else {
-		printf("Error: unkown command %s\n", argv[2]);
+		printf("Error: unkown command %s\n", argv[1]);
 		goto print_usage;
 	}
 

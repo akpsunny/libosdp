@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,16 +13,21 @@
 #include <sys/msg.h>
 #include <errno.h>
 
+#include <utils/strutils.h>
+#include <utils/utils.h>
+#include <utils/procutils.h>
+#include <utils/channel.h>
+
 #include "common.h"
 
-struct msgbuf msgq_cmd;
+struct osdpctl_msgbuf msgq_cmd;
 
-void pack_pd_capabilities(struct pd_cap *cap)
+void pack_pd_capabilities(struct osdp_pd_cap *cap)
 {
-	struct pd_cap c[CAP_SENTINEL];
+	struct osdp_pd_cap c[OSDP_PD_CAP_SENTINEL];
 	int i, j = 0;
 
-	for (i = 1; i < CAP_SENTINEL; i++) {
+	for (i = 1; i < OSDP_PD_CAP_SENTINEL; i++) {
 		if (cap[i].function_code == 0)
 			continue;
 		c[j].function_code = cap[i].function_code;
@@ -35,7 +40,7 @@ void pack_pd_capabilities(struct pd_cap *cap)
 	c[j].num_items = 0;
 	j++;
 
-	memcpy(cap, c, j * sizeof(struct pd_cap));
+	memcpy(cap, c, j * sizeof(struct osdp_pd_cap));
 }
 
 int load_scbk(struct config_pd_s *c, uint8_t *buf)
@@ -48,9 +53,11 @@ int load_scbk(struct config_pd_s *c, uint8_t *buf)
 		return -1;
 	r = fgets(hstr, 33, fd);
 	fclose(fd);
-	if (r == NULL || hstrtoa(buf, hstr))
+	if (r == NULL || hstrtoa(buf, hstr) != 16) {
+		printf("Invalid key_store %s deleted!\n", c->key_store);
+		unlink(c->key_store);
 		return -1;
-
+	}
 	return 0;
 }
 
@@ -61,7 +68,7 @@ int pd_cmd_keyset_handler(struct osdp_cmd_keyset *p)
 	struct config_pd_s *c;
 
 	c = g_config.pd;
-	atohstr(hstr, p->data, p->len);
+	atohstr(hstr, p->data, p->length);
 	fd = fopen(c->key_store, "w");
 	if (fd == NULL) {
 		perror("Error opening store_scbk file");
@@ -75,36 +82,48 @@ int pd_cmd_keyset_handler(struct osdp_cmd_keyset *p)
 
 int pd_cmd_led_handler(struct osdp_cmd_led *p)
 {
-	osdp_dump("PD-CMD: LED\n", (uint8_t *)p, sizeof(struct osdp_cmd_led));
+	hexdump("PD-CMD: LED\n", (uint8_t *)p, sizeof(struct osdp_cmd_led));
 	return 0;
 }
 
 int pd_cmd_buzzer_handler(struct osdp_cmd_buzzer *p)
 {
-	osdp_dump("PD-CMD: Buzzer\n", (uint8_t *)p, sizeof(struct osdp_cmd_buzzer));
+	hexdump("PD-CMD: Buzzer\n", (uint8_t *)p, sizeof(struct osdp_cmd_buzzer));
 	return 0;
 }
 
 int pd_cmd_output_handler(struct osdp_cmd_output *p)
 {
-	osdp_dump("PD-CMD: Output\n", (uint8_t *)p, sizeof(struct osdp_cmd_output));
+	hexdump("PD-CMD: Output\n", (uint8_t *)p, sizeof(struct osdp_cmd_output));
 	return 0;
 }
 
 int pd_cmd_text_handler(struct osdp_cmd_text *p)
 {
-	osdp_dump("PD-CMD: Text\n", (uint8_t *)p, sizeof(struct osdp_cmd_text));
+	hexdump("PD-CMD: Text\n", (uint8_t *)p, sizeof(struct osdp_cmd_text));
 	return 0;
 }
 
 int pd_cmd_comset_handler(struct osdp_cmd_comset *p)
 {
-	osdp_dump("PD-CMD: ComSet\n", (uint8_t *)p, sizeof(struct osdp_cmd_comset));
+	hexdump("PD-CMD: ComSet\n", (uint8_t *)p, sizeof(struct osdp_cmd_comset));
 	return 0;
 }
 
-int pd_cmd_handler(struct osdp_cmd *cmd)
+int cp_event_handler(void *data, int pd, struct osdp_event *event)
 {
+	ARG_UNUSED(data);
+
+	printf("CP: PD[%d]: event: %d\n", pd, event->type);
+	return 0;
+}
+
+int pd_command_handler(void *data, int pd, struct osdp_cmd *cmd)
+{
+	ARG_UNUSED(data);
+
+	printf("CP: PD[%d]: ID: %d ", pd, cmd->id);
+
 	switch(cmd->id) {
 	case OSDP_CMD_OUTPUT:
 		return pd_cmd_output_handler(&cmd->output);
@@ -118,26 +137,10 @@ int pd_cmd_handler(struct osdp_cmd *cmd)
 		return pd_cmd_comset_handler(&cmd->comset);
 	case OSDP_CMD_KEYSET:
 		return pd_cmd_keyset_handler(&cmd->keyset);
+	default:
+		break;
 	}
 	return -1;
-}
-
-int cp_keypress_handler(int pd, uint8_t key)
-{
-	printf("CP: PD[%d]: keypressed: 0x%02x\n", pd, key);
-	return 0;
-}
-
-int cp_card_read_handler(int pd, int format, uint8_t * data, int len)
-{
-	int i;
-
-	printf("CP: PD[%d]: cardRead: FMT: %d Data[%d]: { ", pd, format, len);
-	for (i = 0; i < len; i++)
-		printf("%02x ", data[i]);
-	printf("}\n");
-
-	return 0;
 }
 
 void start_cmd_server(struct config_s *c)
@@ -174,22 +177,12 @@ void handle_cp_command(struct config_s *c, struct osdpctl_cmd *p)
 
 	switch(p->id) {
 	case OSDPCTL_CP_CMD_LED:
-		osdp_cp_send_cmd_led(c->cp_ctx, p->offset, &p->cmd.led);
-		break;
 	case OSDPCTL_CP_CMD_BUZZER:
-		osdp_cp_send_cmd_buzzer(c->cp_ctx, p->offset, &p->cmd.buzzer);
-		break;
 	case OSDPCTL_CP_CMD_TEXT:
-		osdp_cp_send_cmd_text(c->cp_ctx, p->offset, &p->cmd.text);
-		break;
 	case OSDPCTL_CP_CMD_OUTPUT:
-		osdp_cp_send_cmd_output(c->cp_ctx, p->offset, &p->cmd.output);
-		break;
 	case OSDPCTL_CP_CMD_KEYSET:
-		osdp_cp_send_cmd_keyset(c->cp_ctx, &p->cmd.keyset);
-		break;
 	case OSDPCTL_CP_CMD_COMSET:
-		osdp_cp_send_cmd_comset(c->cp_ctx, p->offset, &p->cmd.comset);
+		osdp_cp_send_command(c->cp_ctx, p->offset, &p->cmd);
 		break;
 	case OSDPCTL_CMD_STATUS:
 		printf("SC Status: 0x%08x\n", osdp_get_sc_status_mask(c->cp_ctx));
@@ -219,22 +212,27 @@ int process_commands(struct config_s *c)
 
 int cmd_handler_start(int argc, char *argv[], void *data)
 {
-	int i;
+	int i, ret;
 	osdp_pd_info_t *info_arr, *info;
 	struct config_pd_s *pd;
 	uint8_t *scbk, scbk_buf[16];
 	struct config_s *c = data;
-	struct osdp_cmd cmd;
 
-	if (argc < 1) {
-		printf ("Error: must pass a config file\n");
-		return -1;
-	}
-	config_parse(argv[0], c);
+	ARG_UNUSED(argv);
+	ARG_UNUSED(argc);
+
 	if (c->log_file) {
 		printf("Redirecting stdout and strerr to log_file %s\n", c->log_file);
 		o_redirect(3, c->log_file);
 	}
+
+	if (read_pid(c->pid_file, NULL) == 0) {
+		printf("Error: A service for this file already exists!\n"
+		       "If you are sure it doesn't, remove %s and retry.\n",
+		       c->pid_file);
+		return -1;
+	}
+
 	start_cmd_server(c);
 	write_pid(c->pid_file);
 	c->service_started = 1;
@@ -250,18 +248,24 @@ int cmd_handler_start(int argc, char *argv[], void *data)
 		pd = c->pd + i;
 		info->address = pd->address;
 		info->baud_rate = pd->channel_speed;
-		if (channel_setup(pd)) {
+
+		ret = channel_open(&c->chn_mgr, pd->channel_type, pd->channel_device,
+				   pd->channel_speed, pd->is_pd_mode);
+		if (ret != CHANNEL_ERR_NONE && ret != CHANNEL_ERR_ALREADY_OPEN) {
 			printf("Failed to setup channel\n");
 			exit (-1);
 		}
-		if (pd->channel.flush)
-			pd->channel.flush(pd->channel.data);
-		memcpy(&info->channel, &pd->channel, sizeof(struct osdp_channel));
+
+		channel_get(&c->chn_mgr, pd->channel_device,
+			    &info->channel.data,
+			    &info->channel.send,
+			    &info->channel.recv,
+			    &info->channel.flush);
 
 		if (c->mode == CONFIG_MODE_CP)
 			continue;
 
-		memcpy(&info->id, &pd->id, sizeof(struct pd_id));
+		memcpy(&info->id, &pd->id, sizeof(struct osdp_pd_id));
 		pack_pd_capabilities(pd->cap);
 		info->cap = pd->cap;
 	}
@@ -274,8 +278,7 @@ int cmd_handler_start(int argc, char *argv[], void *data)
 			printf("Failed to setup CP context\n");
 			return -1;
 		}
-		osdp_cp_set_callback_key_press(c->cp_ctx, cp_keypress_handler);
-		osdp_cp_set_callback_card_read(c->cp_ctx, cp_card_read_handler);
+		osdp_cp_set_event_callback(c->cp_ctx, cp_event_handler, NULL);
 	} else {
 		scbk = NULL;
 		if (load_scbk(c->pd, scbk_buf) == 0)
@@ -285,6 +288,7 @@ int cmd_handler_start(int argc, char *argv[], void *data)
 			printf("Failed to setup PD context\n");
 			return -1;
 		}
+		osdp_pd_set_command_callback(c->cp_ctx, pd_command_handler, NULL);
 	}
 
 	free(info_arr);
@@ -294,9 +298,6 @@ int cmd_handler_start(int argc, char *argv[], void *data)
 			osdp_cp_refresh(c->cp_ctx);
 		} else {
 			osdp_pd_refresh(c->pd_ctx);
-			if (osdp_pd_get_cmd(c->pd_ctx, &cmd) == 0) {
-				pd_cmd_handler(&cmd);
-			}
 		}
 		process_commands(c);
 		usleep(20 * 1000);

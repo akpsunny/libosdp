@@ -1,5 +1,5 @@
 #
-#  Copyright (c) 2020 Siddharth Chandrasekaran
+#  Copyright (c) 2020 Siddharth Chandrasekaran <siddharth@embedjournal.com>
 #
 #  SPDX-License-Identifier: Apache-2.0
 #
@@ -10,20 +10,25 @@ list(APPEND BIN_OSDPCTL_SRC
 	ini_parser.c
 	config.c
 	arg_parser.c
-	utils.c
-	rs232.c
-	channel_uart.c
-	channel_msgq.c
-	channel_custom.c
-	channel.c
 	osdpctl.c
 	cmd_start.c
 	cmd_send.c
 	cmd_others.c
 )
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
+find_package(LibOSDP NO_MODULE REQUIRED HINTS ${CMAKE_BINARY_DIR})
 
 add_executable(${BIN_OSDPCTL} ${BIN_OSDPCTL_SRC})
+target_link_libraries(${BIN_OSDPCTL} ${LIBOSDP_LIBRARY} utils)
+target_include_directories(${BIN_OSDPCTL}
+	PRIVATE
+		${LIBOSDP_INCLUDE_DIR}
+		${CMAKE_SOURCE_DIR}/utils/include
+		${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
-target_link_libraries(${BIN_OSDPCTL} ${READLINE_LIBRARY} ${OSDP_LIBRARY_TO_LINK})
+install(
+	TARGETS ${BIN_OSDPCTL}
+	DESTINATION "bin"
+	COMPONENT distributables
+)

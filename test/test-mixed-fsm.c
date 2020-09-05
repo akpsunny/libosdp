@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,8 +9,8 @@
 #include <osdp.h>
 #include "test.h"
 
-void pd_phy_state_update(struct osdp_pd *pd);
-int cp_state_update(struct osdp_pd *pd);
+extern int (*test_state_update)(struct osdp_pd *);
+extern void (*test_osdp_pd_update)(struct osdp_pd *pd);
 
 struct test_mixed {
 	struct osdp *cp_ctx;
@@ -29,7 +29,6 @@ int test_mixed_cp_fsm_send(void *data, uint8_t *buf, int len)
 
 	memcpy(test_mixed_cp_to_pd_buf, buf, len);
 	test_mixed_cp_to_pd_buf_length = len;
-	//osdp_dump("CP Send", buf, len);
 	return len;
 }
 
@@ -45,7 +44,6 @@ int test_mixed_cp_fsm_receive(void *data, uint8_t *buf, int len)
 		memcpy(buf, test_mixed_pd_to_cp_buf, ret);
 		test_mixed_pd_to_cp_buf_length = 0;
 	}
-	//osdp_dump("PD Recv", buf, ret);
 	return ret;
 }
 
@@ -97,17 +95,17 @@ int test_mixed_fsm_setup(struct test *t)
 		return -1;
 	}
 
-	struct pd_cap cap[] = {
+	struct osdp_pd_cap cap[] = {
 		{
-			.function_code = CAP_READER_LED_CONTROL,
+			.function_code = OSDP_PD_CAP_READER_LED_CONTROL,
 			.compliance_level = 1,
 			.num_items = 1
 		}, {
-			.function_code = CAP_COMMUNICATION_SECURITY,
+			.function_code = OSDP_PD_CAP_COMMUNICATION_SECURITY,
 			.compliance_level = 1,
 			.num_items = 1
 		},
-		OSDP_PD_CAP_SENTINEL
+		{ -1, 0, 0 }
 	};
 	osdp_pd_info_t info_pd = {
 		.address = 101,
@@ -131,7 +129,7 @@ int test_mixed_fsm_setup(struct test *t)
 		osdp_cp_teardown((osdp_t *) test_data.cp_ctx);
 		return -1;
 	}
-	osdp_set_log_level(LOG_EMERG);
+	osdp_set_log_level(LOG_INFO);
 	t->mock_data = (void *)&test_data;
 	return 0;
 }
@@ -146,11 +144,14 @@ void test_mixed_fsm_teardown(struct test *t)
 
 void run_mixed_fsm_tests(struct test *t)
 {
-	int result = TRUE;
-	uint32_t count = 0;
+	int result = true;
 	struct test_mixed *p;
+	struct osdp_pd *pd_cp, *pd_pd;
+	int64_t start;
 
 	printf("\nStarting CP - PD phy layer mixed tests\n");
+
+	printf("    -- setting up OSDP devices\n");
 
 	if (test_mixed_fsm_setup(t))
 		return;
@@ -158,22 +159,34 @@ void run_mixed_fsm_tests(struct test *t)
 	p = t->mock_data;
 
 	printf("    -- executing CP - PD mixed tests\n");
+	start = osdp_millis_now();
+	pd_cp = GET_CURRENT_PD(p->cp_ctx);
+	pd_pd = GET_CURRENT_PD(p->pd_ctx);
 	while (1) {
-		cp_state_update(to_current_pd(p->cp_ctx));
-		pd_phy_state_update(to_current_pd(p->pd_ctx));
-
-		if (to_current_pd(p->cp_ctx)->state == CP_STATE_OFFLINE) {
+		test_state_update(pd_cp);
+		test_osdp_pd_update(pd_pd);
+#ifdef CONFIG_OSDP_SC_ENABLED
+		if (osdp_get_sc_status_mask(p->cp_ctx))
+			break;
+#else
+		if (osdp_get_status_mask(p->cp_ctx))
+			break;
+#endif
+		if (pd_cp->state == OSDP_CP_STATE_OFFLINE) {
 			printf("    -- CP went offline!\n");
-			result = FALSE;
+			result = false;
 			break;
 		}
-		if (to_current_pd(p->pd_ctx)->phy_state == 2) {
-			printf("    -- PD phy state error!\n");
-			result = FALSE;
+		if (pd_pd->state == OSDP_PD_STATE_ERR) {
+			printf("    -- PD state error!\n");
+			result = false;
 			break;
 		}
-		if (count++ > 300)
+		if (osdp_millis_since(start) > 5 * 1000) {
+			printf("    -- test timout!\n");
+			result = false;
 			break;
+		}
 	}
 	printf("    -- CP - PD mixed tests complete\n");
 

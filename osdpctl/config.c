@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,6 +8,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+
+#include <utils/strutils.h>
 
 #include "ini_parser.h"
 #include "common.h"
@@ -96,7 +98,7 @@ int config_parse_key_capabilites(const char *val, void *data)
 	struct config_pd_s *p = data;
 
 	safe_strncpy(str, val, sizeof(str));
-	remove_char(str, ' ');
+	remove_all(str, ' ');
 	tok1 = strtok_r(str, "[)]", &rest1);
 	while (tok1 != NULL) {
 		i = 0; ival[0] = 0;
@@ -106,7 +108,7 @@ int config_parse_key_capabilites(const char *val, void *data)
 				return INI_FAILURE;
 			tok2 = strtok_r(NULL, ", ", &rest2);
 		}
-		if (ival[0] <= 0 || ival[0] >= CAP_SENTINEL ||
+		if (ival[0] <= 0 || ival[0] >= OSDP_PD_CAP_SENTINEL ||
 		    ival[1] < 0 || ival[2] < 0)
 			return INI_FAILURE;
 		p->cap[ival[0]].function_code = ival[0];
@@ -122,13 +124,8 @@ int config_parse_key_channel_type(const char *val, void *data)
 {
 	struct config_pd_s *p = data;
 
-	if (strcmp(val, "uart") == 0)
-		p->channel_type = CONFIG_CHANNEL_TYPE_UART;
-	else if (strcmp(val, "msgq") == 0)
-		p->channel_type = CONFIG_CHANNEL_TYPE_MSGQ;
-	else if (strcmp(val, "custom") == 0)
-		p->channel_type = CONFIG_CHANNEL_TYPE_CUSTOM;
-	else
+	p->channel_type = channel_guess_type(val);
+	if (p->channel_type == CHANNEL_TYPE_ERR)
 		return INI_FAILURE;
 
 	return INI_SUCCESS;
@@ -161,7 +158,7 @@ int config_parse_key_channel_device(const char *val, void *data)
 	}
 
 	if (val[0] == '/')
-		p->channel_device = strdup(val);
+		p->channel_device = safe_strdup(val);
 	else
 		p->channel_device = realpath(val, NULL);
 
@@ -328,22 +325,22 @@ const struct config_key_s g_config_key_pd[] = {
 	{ NULL, NULL }
 };
 
-const char *cap_names[CAP_SENTINEL] = {
-	[CAP_UNUSED]				= "NULL",
-	[CAP_CONTACT_STATUS_MONITORING]		= "contact_status_monitoring",
-	[CAP_OUTPUT_CONTROL]			= "output_control",
-	[CAP_CARD_DATA_FORMAT]			= "card_data_format",
-	[CAP_READER_LED_CONTROL]		= "reader_led_control",
-	[CAP_READER_AUDIBLE_OUTPUT]		= "reader_audible_control",
-	[CAP_READER_TEXT_OUTPUT]		= "reader_text_output",
-	[CAP_TIME_KEEPING]			= "time_keeping",
-	[CAP_CHECK_CHARACTER_SUPPORT]		= "check_character_support",
-	[CAP_COMMUNICATION_SECURITY]		= "communication_security",
-	[CAP_RECEIVE_BUFFERSIZE]		= "receive_buffersize",
-	[CAP_LARGEST_COMBINED_MESSAGE_SIZE]	= "largest_combined_message_size",
-	[CAP_SMART_CARD_SUPPORT]		= "smart_card_support",
-	[CAP_READERS]				= "readers",
-	[CAP_BIOMETRICS]			= "biometrics"
+const char *cap_names[OSDP_PD_CAP_SENTINEL] = {
+	[OSDP_PD_CAP_UNUSED]                        = "NULL",
+	[OSDP_PD_CAP_CONTACT_STATUS_MONITORING]     = "contact_status_monitoring",
+	[OSDP_PD_CAP_OUTPUT_CONTROL]                = "output_control",
+	[OSDP_PD_CAP_CARD_DATA_FORMAT]              = "card_data_format",
+	[OSDP_PD_CAP_READER_LED_CONTROL]            = "reader_led_control",
+	[OSDP_PD_CAP_READER_AUDIBLE_OUTPUT]         = "reader_audible_control",
+	[OSDP_PD_CAP_READER_TEXT_OUTPUT]            = "reader_text_output",
+	[OSDP_PD_CAP_TIME_KEEPING]                  = "time_keeping",
+	[OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT]       = "check_character_support",
+	[OSDP_PD_CAP_COMMUNICATION_SECURITY]        = "communication_security",
+	[OSDP_PD_CAP_RECEIVE_BUFFERSIZE]            = "receive_buffersize",
+	[OSDP_PD_CAP_LARGEST_COMBINED_MESSAGE_SIZE] = "largest_combined_message_size",
+	[OSDP_PD_CAP_SMART_CARD_SUPPORT]            = "smart_card_support",
+	[OSDP_PD_CAP_READERS]                       = "readers",
+	[OSDP_PD_CAP_BIOMETRICS]                    = "biometrics"
 };
 
 int config_key_parse(const char *key, const char *val,
@@ -415,14 +412,13 @@ void config_parse(const char *filename, struct config_s *config)
 		}
 		config->config_file = rp;
 	} else {
-		config->config_file = strdup(filename);
+		config->config_file = safe_strdup(filename);
 	}
 
-	if (config->pd->channel_type == CONFIG_CHANNEL_TYPE_MSGQ) {
+	if (config->pd->channel_type == CHANNEL_TYPE_MSGQ) {
 		if (config->mode == CONFIG_MODE_PD) {
-			if (config->pd->channel_device)
-				free(config->pd->channel_device);
-			config->pd->channel_device = strdup(config->config_file);
+			safe_free(config->pd->channel_device);
+			config->pd->channel_device = safe_strdup(config->config_file);
 		}
 	}
 }
@@ -454,7 +450,7 @@ void config_print(struct config_s *config)
 		if (cp_mode)
 			continue;
 		printf("capabilities:\n");
-		for (j = 0; j < CAP_SENTINEL; j++) {
+		for (j = 0; j < OSDP_PD_CAP_SENTINEL; j++) {
 			if (pd->cap[j].function_code == 0)
 				continue;
 			printf("\tFC-%02d %s -- [ %d, %d, %d ]\n",

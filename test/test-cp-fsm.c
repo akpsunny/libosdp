@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -9,7 +9,7 @@
 #include <osdp.h>
 #include "test.h"
 
-int cp_state_update(struct osdp_pd *pd);
+extern int (*test_state_update)(struct osdp_pd *);
 
 int test_fsm_resp = 0;
 
@@ -81,9 +81,9 @@ int test_cp_fsm_setup(struct test *t)
 		printf("   init failed!\n");
 		return -1;
 	}
-	// osdp_set_log_level(LOG_DEBUG);
-	set_current_pd(ctx, 0);
-	set_flag(to_current_pd(ctx), PD_FLAG_SKIP_SEQ_CHECK);
+	osdp_set_log_level(LOG_INFO);
+	SET_CURRENT_PD(ctx, 0);
+	SET_FLAG(GET_CURRENT_PD(ctx), PD_FLAG_SKIP_SEQ_CHECK);
 	t->mock_data = (void *)ctx;
 	return 0;
 }
@@ -95,7 +95,7 @@ void test_cp_fsm_teardown(struct test *t)
 
 void run_cp_fsm_tests(struct test *t)
 {
-	int result = TRUE;
+	int result = true;
 	uint32_t count = 0;
 	struct osdp *ctx;
 
@@ -106,20 +106,20 @@ void run_cp_fsm_tests(struct test *t)
 
 	ctx = t->mock_data;
 
-	printf("    -- executing cp_state_update()\n");
+	printf("    -- executing state_update()\n");
 	while (1) {
-		cp_state_update(to_current_pd(ctx));
+		test_state_update(GET_CURRENT_PD(ctx));
 
-		if (to_current_pd(ctx)->state == CP_STATE_OFFLINE) {
-			printf("    -- cp_state_update() CP went offline\n");
-			result = FALSE;
+		if (GET_CURRENT_PD(ctx)->state == OSDP_CP_STATE_OFFLINE) {
+			printf("    -- state_update() CP went offline\n");
+			result = false;
 			break;
 		}
 		if (count++ > 300)
 			break;
 		usleep(1000);
 	}
-	printf("    -- cp_state_update() complete\n");
+	printf("    -- state_update() complete\n");
 
 	TEST_REPORT(t, result);
 

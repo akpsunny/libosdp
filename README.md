@@ -1,151 +1,142 @@
-![OSDP - Open Supervised Device Protocol][4]
+# LibOSDP - Open Supervised Device Protocol Library
 
-[![Build Status][1]][2] [![Codacy Badge][7]][8]
+[![Version][1]][2] [![Build CI][3]][4] [![Travis CI][5]][6] [![Codacy Badge][7]][8]
 
-This is an open source implementation of Open Supervised Device Protocol (OSDP)
-developed by [Security Industry Association (SIA)][3]. The protocol is intended
-to improve interoperability among access control and security products. OSDP
-is currently in-process to become a standard recognized by the American National
-Standards Institute (ANSI).
+This is an open source implementation of IEC 60839-11-5 Open Supervised Device
+Protocol (OSDP). The protocol is intended to improve interoperability among
+access control and security products. It supports Secure Channel (SC) for
+encrypted and authenticated communication between configured devices.
 
 OSDP describes the communication protocol for interfacing one or more Peripheral
-Devices (PD) to a Control Panel (CP). The OSDP specification describes the
-protocol implementation over a two-wire RS-485 multi-drop serial communication
-channel. Nevertheless, this protocol can be used to transfer secure data over
-any physical channel. Have a look at our [protocol design documents][5] to get
-a better idea.
+Devices (PD) to a Control Panel (CP) over a two-wire RS-485 multi-drop serial
+communication channel. Nevertheless, this protocol can be used to transfer
+secure data over any stream based physical channel. Read more about OSDP
+[here][21].
+
+This protocol is developed and maintained by [Security Industry Association][20]
+(SIA).
 
 ## Salient Features of LibOSDP
 
-- Supports secure channel communication (AES-128).
-- Can be used to setup a PD or CP mode of operation.
-- Exposes a well defined contract though `include/osdp.h`.
-- No run-time memory allocation. All memory is allocated at init-time.
-- Well designed source code architecure.
+  - Supports secure channel communication (AES-128).
+  - Can be used to setup a PD or CP mode of operation.
+  - Exposes a well defined contract though a single header file.
+  - No run-time memory allocation. All memory is allocated at init-time.
+  - No external dependencies (for ease of cross compilation).
+  - Fully non-blocking, asynchronous design.
+  - Provides Python3 bindings for the C library for faster testing/integration.
+
+## C API
+
+LibOSDP exposes a [minimal set of API][26] to setup and manage the lifecycle of
+OSDP devices. See `include/osdp.h` for more details.
+
+## Python API
+
+To setup a device as a Control Panel in Python, you'd do something like this:
+
+```python
+import osdp
+
+## Setup OSDP device in Control Panel mode
+cp = osdp.ControlPanel(pd_info, master_key=key)
+
+## send a output command to PD-1
+cp.send_command(1, output_cmd)
+```
+
+Similarly, for Peripheral Device,
+
+```python
+import osdp
+
+## Setup OSDP device in Peripheral Device mode
+pd = osdp.PeripheralDevice(pd_info, capabilities=pd_cap)
+
+## Set a handler for incoming commands from CP
+pd.set_command_callback(command_handler_fn)
+```
+
+For more details, look at [cp_app.py][29] and [pd_app.py][30].
 
 ## Supported Commands and Replies
 
 OSDP has certain command and reply IDs pre-registered. This implementation of
-the protocol support only the most common among them. You can see [a list of
-commands and replies and their support status in LibOSDP here][6].
+the protocol support only the most common among them. You can see a list of
+commands and replies and their support status in LibOSDP [here][22].
 
 ## Dependencies
 
-* cmake3 (host)
+  * cmake3 (host)
+  * python3 (host)
+  * [goToMain/C-Utils][25] (host, submodule)
 
 ## Compile LibOSDP
 
 To build libosdp you must have cmake-3.0 (or above) and a C compiler installed.
 This repository produces a `libosdpstatic.a` and `libosdp.so`. You can link
 these with your application as needed (-losdp or -losdpstatic). Have a look at
-`sample/*` for details on how to consume this library.
+`sample/* for a quick lookup on how to consume this library and structure your
+application.
+
+You can also read the [API documentation][26] for a comprehensive list of APIs
+that are exposed by libosdp.
 
 ```sh
+git clone https://github.com/goToMain/libosdp --recurse-submodules
+cd libosdp
 mkdir build && cd build
 cmake ..
 make
+
+# optionally
 make check
 make DESTDIR=/your/install/path install
 ```
 
-## Compile-time configuration options
-
-LibOSDP can can be configured to enable/disable certain featured by passing the
-`-DCONFIG_XXX=ON/OFF` flag to cmake. Following table lists all such config
-switches.  For instance, if you want to also build static library, you can pass
-the flag `-DCONFIG_OSDP_BUILD_STATIC=ON` to cmake.
-
-| OPTION                           | Default | Description                                            |
-|:---------------------------------|:-------:|:-------------------------------------------------------|
-| CONFIG_OSDP_BUILD_STATIC         |   OFF   | Build static archive (in addition to shared library)   |
-| CONFIG_OSDP_PACKET_TRACE         |   OFF   | Enable raw packet trace for diagnostics                |
-
-## Add LibOSDP to your cmake project
-
-If you are familiar with cmake, then adding LibOSDP to your project is super
-simple. First off, add the following to your CMakeLists.txt
-
-```cmake
-include(ExternalProject)
-ExternalProject_Add(ext_libosdp
-	GIT_REPOSITORY    https://github.com/cbsiddharth/libosdp.git
-	GIT_TAG           master
-	SOURCE_DIR        ${CMAKE_BINARY_DIR}/libosdp/src
-	BINARY_DIR        ${CMAKE_BINARY_DIR}/libosdp/build
-	CONFIGURE_COMMAND cmake ${CMAKE_BINARY_DIR}/libosdp/src
-	BUILD_COMMAND     make
-	INSTALL_COMMAND   make install DESTDIR=${CMAKE_BINARY_DIR}/libosdp/install
-)
-include_directories("${CMAKE_BINARY_DIR}/libosdp/install/include")
-link_directories("${CMAKE_BINARY_DIR}/libosdp/install/lib")
-```
-
-Next you must add `ext_libosdp` as a dependency to your target. That it! now
-you can link your application to osdp library. Following example shows how you
-can do this.
-
-```cmake
-set(OSDP_APP osdp-app)
-list(APPEND OSDP_APP_SRC
-    "src/main.c"
-    "src/more_source_files.c"
-    ...
-)
-add_executable(${OSDP_APP} ${OSDP_APP_SRC})
-add_dependencies(${OSDP_APP} ext_libosdp)
-target_link_libraries(${OSDP_APP} osdp)
-```
-
-## Cross Compiling:
-
-LibOSDP can be compiled with your cross compiler by passing a toolchain file to
-cmake. This can be done by invoking cmake with the command line argument
-`-DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-file.cmake`.
-
-If your toolchain is installed in `/opt/toolchain/armv8l-linux-gnueabihf/` and
-the sysroot is present in `/opt/toolchain/armv8l-linux-gnueabihf/sysroot`, the
-`toolchain-file.cmake` file should look like this:
-
-```cmake
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSTEM_PROCESSOR arm)
-
-# specify the cross compiler and sysroot
-set(TOOLCHAIN_INST_PATH /opt/toolchain/armv8l-linux-gnueabihf)
-set(CMAKE_C_COMPILER    ${TOOLCHAIN_INST_PATH}/bin/armv8l-linux-gnueabihf-gcc)
-set(CMAKE_CXX_COMPILER  ${TOOLCHAIN_INST_PATH}/bin/armv8l-linux-gnueabihf-g++)
-set(CMAKE_SYSROOT       ${TOOLCHAIN_INST_PATH}/sysroot)
-
-# don't search for programs in the build host directories
-set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
-
-# search for libraries and headers in the target directories only
-set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
-set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
-```
-
-For convenience, the `toolchain-file.cmake` file can be placed in a common path
-(probably where the toolchain is installed) and referenced from our build
-directory.
-
-```sh
-mkdir build && cd build
-cmake -DCMAKE_TOOLCHAIN_FILE=/opt/toolchain/armv8l-linux-gnueabihf/toolchain-file.cmake ..
-make
-```
+Refer to [this document][23] for more information on build and cross
+compilation.
 
 ## Contributions and bugs
 
-This repository is a work in progress; read the `TODO` file for list of pending
-tasks. Patches in those areas are welcome; open an issue in the github page of
-this project (https://github.com/cbsiddharth/libosdp) if you face any issues.
+The CP mode has achieved some level of maturity. OOH, the PD mode is still a
+work in progress. Have a look at `TODO` file for list of pending tasks. Patches
+in those directions are welcome.
 
-[1]: https://travis-ci.org/cbsiddharth/libosdp.svg?branch=master
-[2]: https://travis-ci.org/cbsiddharth/libosdp
-[3]: https://www.securityindustry.org/industry-standards/open-supervised-device-protocol/
-[4]: doc/osdp-logo.png
-[5]: doc/README.md
-[6]: doc/osdp-commands-and-replies.md
+If you find bugs or other issues, please [open an issue][28] in the github page
+of this project here: [https://github.com/goTomain/libosdp][24].
+
+## License
+
+This software is distributed under the terms of Apache-2.0 license. If you don't
+know what that means/implies, you can consider it is as "free as in beer".
+
+OSDP protocol is also open for consumption into any product. There is no need
+to,
+ - obtain permission from SIA
+ - pay royalty to SIA
+ - become SIA member
+
+The OSDP specification can be obtained from SIA for a cost. Read more at our
+[FAQ page][27].
+
+[1]: https://img.shields.io/github/v/release/goToMain/libosdp
+[2]: https://github.com/goToMain/libosdp/releases
+[3]: https://github.com/goTomain/libosdp/workflows/Build%20CI/badge.svg
+[4]: https://github.com/goTomain/libosdp/actions?query=workflow%3A%22Build+CI%22
+[5]: https://travis-ci.org/goTomain/libosdp.svg?branch=master
+[6]: https://travis-ci.org/goTomain/libosdp
 [7]: https://api.codacy.com/project/badge/Grade/7b6f389d4fbf46a692b64d3e82452af9
 [8]: https://app.codacy.com/manual/siddharth_6/libosdp?utm_source=github.com&utm_medium=referral&utm_content=cbsiddharth/libosdp&utm_campaign=Badge_Grade_Dashboard
+
+[20]: https://www.securityindustry.org/industry-standards/open-supervised-device-protocol/
+[21]: https://libosdp.gotomain.io/protocol/
+[22]: https://libosdp.gotomain.io/protocol/commands-and-replies.html
+[23]: https://libosdp.gotomain.io/libosdp/build-and-install.html
+[24]: https://github.com/goTomain/libosdp
+[25]: https://github.com/goTomain/c-utils
+[26]: https://libosdp.gotomain.io/api/
+[27]: https://libosdp.gotomain.io/protocol/faq.html
+[28]: https://github.com/goToMain/libosdp/issues
+[29]: https://github.com/goToMain/libosdp/blob/master/samples/python/cp_app.py
+[30]: https://github.com/goToMain/libosdp/blob/master/samples/python/pd_app.py

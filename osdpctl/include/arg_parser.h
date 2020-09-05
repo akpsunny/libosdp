@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -25,7 +25,7 @@ enum ap_type_e {
 };
 
 struct ap_option {
-	char short_name;
+	signed char short_name;
 	const char *long_name;
 	const char *opt_name;
 	enum ap_type_e type;

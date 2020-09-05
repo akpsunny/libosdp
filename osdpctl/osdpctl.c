@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 Siddharth Chandrasekaran
+ * Copyright (c) 2019 Siddharth Chandrasekaran <siddharth@embedjournal.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -67,8 +67,10 @@ void cleanup()
 
 	for (i = 0; i < g_config.num_pd; i++) {
 		pd = g_config.pd + i;
-		channel_teardown(pd);
+		channel_close(&g_config.chn_mgr, pd->channel_device);
 	}
+
+	channel_manager_teardown(&g_config.chn_mgr);
 }
 
 void osdpctl_process_init()
@@ -90,5 +92,14 @@ int main(int argc, char *argv[])
 
         ap_init("osdpctl", "Setup/Manage OSDP devices");
 
-	return ap_parse(argc, argv, ap_opts, &g_config);
+	if (argc < 2) {
+		printf("Error: must provide a config file!\n");
+		exit(-1);
+	}
+
+	channel_manager_init(&g_config.chn_mgr);
+
+	config_parse(argv[1], &g_config);
+
+	return ap_parse(argc - 1, argv + 1, ap_opts, &g_config);
 }
