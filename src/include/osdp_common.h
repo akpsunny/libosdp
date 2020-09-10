@@ -147,6 +147,21 @@ union osdp_ephemeral_data {
 #define PD_FLAG_INSTALL_MODE	0x40000000 /* PD is in install mode */
 #define PD_FLAG_PD_MODE		0x80000000 /* device is setup as PD */
 
+/* TPM Flags */
+#ifdef CONFIG_OSDP_TPM_ENABLED
+#define OSDP_MODE00			0x00
+#define OSDP_MODE01			0x01
+
+#define OSDP_TPM_CIR_DISABLED		0x00
+#define OSDP_TPM_CIR_ENABLED		0x01
+
+#define OSDP_TPM_SCPS_NOT_PRESENT			0x00
+#define OSDP_TPM_SCPS_PRESENT_INTERFACE_NOT_SPECIFIED	0x01
+#define OSDP_TPM_SCPS_PRESENT_CONTACTLESS_INTERFACE	0x02
+#define OSDP_TPM_SCPS_PRESENT_CONTACT_INTERFACE		0x03
+#define OSDP_TPM_SCPS_RFU				0x04
+#endif
+
 /* logging short hands */
 #define LOG_EM(...)	(osdp_log(LOG_EMERG, __VA_ARGS__))
 #define LOG_ALERT(...)	(osdp_log(LOG_ALERT, __VA_ARGS__))
@@ -229,7 +244,14 @@ enum osdp_state_e {
 	OSDP_CP_STATE_SC_SCRYPT,
 	OSDP_CP_STATE_SET_SCBK,
 	OSDP_CP_STATE_ONLINE,
-	OSDP_CP_STATE_OFFLINE
+	OSDP_CP_STATE_OFFLINE,
+	OSDP_CP_STATE_TPM_SETUP,
+	OSDP_CP_STATE_TPM_M01_XMIT,
+	OSDP_CP_STATE_TPM_M01_SCDONE,
+	OSDP_CP_STATE_TPM_M01_SPE,
+	OSDP_CP_STATE_TPM_M01_SCSCAN,
+	OSDP_CP_STATE_TPM_M00_SET,
+	OSDP_CP_STATE_TPM_M00_REQ
 };
 
 enum osdp_pkt_errors_e {
@@ -237,6 +259,34 @@ enum osdp_pkt_errors_e {
 	OSDP_ERR_PKT_WAIT  = -2,
 	OSDP_ERR_PKT_SKIP  = -3
 };
+
+#ifdef CONFIG_OSDP_TPM_ENABLED
+enum osdp_tpm_xwr_m00_pcmnd_e {
+	OSDP_CP_TPM_PCMND_PR00REQ = 1,
+	OSDP_CP_TPM_PCMND_PROOSET
+};
+
+enum osdp_tpm_xwr_m01_pcmnd_e {
+	OSDP_CP_TPM_PCMND_PR01XMIT = 1,
+	OSDP_CP_TPM_PCMND_PRO1SCDONE,
+	OSDP_CP_TPM_PCMND_PR01SPE,
+	OSDP_CP_TPM_PCMND_PR01SCSCAN,
+	OSDP_CP_TPM_PCMND_RFU
+};
+
+enum osdp_tpm_xrd_m00_preply_e {
+	OSDP_CP_TPM_PREPLY_PR00ERROR,
+	OSDP_CP_TPM_PREPLY_PR00REQR,
+	OSDP_CP_TPM_PREPLY_PR00CIRR
+};
+
+enum osdp_tpm_xrd_m01_preply_e {
+	OSDP_CP_TPM_PREPLY_PR01ERROR,
+	OSDP_CP_TPM_PREPLY_PR01PRES,
+	OSDP_CP_TPM_PREPLY_PR01SCREP,
+	OSDP_CP_TPM_PREPLY_PR01SPER
+};
+#endif
 
 struct osdp_slab {
 	int block_size;
@@ -272,6 +322,121 @@ struct osdp_queue {
 	queue_t queue;
 	slab_t slab;
 };
+
+#ifdef CONFIG_OSDP_TPM_ENABLED
+/**
+ * Tranparent mode commands
+ */
+struct pd_tpm_xwr {
+	uint8_t pdata_len;
+	uint8_t xwr_pdata[255];
+};
+
+struct osdp_tpm_xwr_pr00req_cmd {
+	uint8_t	mode;
+	uint8_t pcmnd;
+};
+
+struct osdp_tpm_xwr_pr00set_cmd {
+	uint8_t mode;
+	uint8_t pcmnd;
+	uint8_t code;
+	uint8_t config;
+};
+
+struct osdp_tpm_xwr_pr01xmit_cmd {
+	uint8_t mode;
+	uint8_t pcmnd;
+	uint8_t id;
+	uint8_t apdu[255-3];
+};
+
+struct osdp_tpm_xwr_pr01scdone {
+	uint8_t mode;
+	uint8_t pcmnd;
+	uint8_t id;
+};
+
+struct osdp_tpm_xwr_pr01spe {
+	uint8_t mode;
+	uint8_t pcmnd;
+	uint8_t id;
+	uint8_t btimeOut;
+	uint8_t btimeOut2;
+	uint8_t bmFormatString;
+	uint8_t bmPINBlockString;
+	uint8_t bmPINLengthFormat;
+	uint8_t wPINMaxExtraDigit[2];
+	uint8_t bEntryValidationCondition;
+	uint8_t bNumerMessage;
+	uint8_t wLangId[2];
+	uint8_t bMsgIndex;
+	uint8_t bTeoPrologue[3];
+	uint32_t uIDataLength;
+	uint8_t abData[255-21];
+};
+
+struct osdp_tpm_xwr_pr01scscan {
+	uint8_t mode;
+	uint8_t pcmnd;
+	uint8_t id;
+};
+
+/**
+ * Tranparent mode response
+ */
+struct pd_tpm_xrd {
+	uint8_t pdata_len;
+	uint8_t pdata[255];
+};
+
+struct osdp_tpm_xrd_pr0001error {
+	uint8_t mode;
+	uint8_t preply;
+	uint8_t error;
+};
+
+struct osdp_tpm_xrd_pr00reqr {
+	uint8_t mode;
+	uint8_t preply;
+	uint8_t code;
+	uint8_t config;
+};
+
+struct osdp_tpm_xrd_pr00cirr {
+	uint8_t mode;
+	uint8_t preply;
+	uint8_t id;
+	uint8_t cprotocol;
+	uint8_t csnlen;
+	uint8_t protocollen;
+	uint8_t csndata[0];
+	uint8_t protocoldata[0];
+};
+
+struct osdp_tpm_xrd_pr01pres {
+	uint8_t mode;
+	uint8_t preply;
+	uint8_t id;
+	uint8_t status;
+};
+
+struct osdp_tpm_xrd_pr01screp {
+	uint8_t mode;
+	uint8_t preply;
+	uint8_t id;
+	uint8_t status;
+	uint8_t apdu[0]
+};
+
+struct osdp_tpm_xrd_pr01sper {
+	uint8_t mode;
+	uint8_t preply;
+	uint8_t id;
+	uint8_t status;
+	uint8_t tries;
+};
+#endif
 
 struct osdp_pd {
 	void *__parent;
@@ -310,6 +475,14 @@ struct osdp_pd {
 #endif
 	void *command_callback_arg;
 	pd_commnand_callback_t command_callback;
+
+#ifdef CONFIG_OSDP_TPM_ENABLED
+	/**
+	 * Add TRANSPARENT Mode Specific data holders
+	 */
+	struct pd_tpm_xwr xwr;
+	struct pd_tpm_xrd xrd;
+#endif
 };
 
 struct osdp_cp {

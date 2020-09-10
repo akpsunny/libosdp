@@ -330,6 +330,11 @@ static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
 			buf[len++] = pd->sc.cp_cryptogram[i];
 		ret = 0;
 		break;
+#ifdef CONFIG_OSDP_TPM_ENABLED
+	case CMD_XWR:
+		// To Do
+		break;
+#endif
 #endif /* CONFIG_OSDP_SC_ENABLED */
 	default:
 		LOG_ERR(TAG "Unknown/Unsupported command %02x", pd->cmd_id);
@@ -548,6 +553,10 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		cp->event_callback(cp->event_callback_arg, pd->address, &event);
 		ret = 0;
 		break;
+#ifdef CONFIG_OSDP_TPM_ENABLED
+	case REPLY_XRD:
+		break;
+#endif
 #ifdef CONFIG_OSDP_SC_ENABLED
 	case REPLY_CCRYPT:
 		if (len != REPLY_CCRYPT_DATA_LEN) {
@@ -702,6 +711,17 @@ static inline void cp_set_state(struct osdp_pd *pd, enum osdp_state_e state)
 	CLEAR_FLAG(pd, PD_FLAG_AWAIT_RESP);
 }
 
+#ifdef CONFIG_OSDP_TPM_ENABLED
+static int osdp_tpm_m00_set(struct osdp_pd *pd, uint8_t mode, uint8_t config)
+{
+	pd->xwr.xwr_mode  = MODE00;
+	pd->xwr.xwr_pcmnd = OSDP_CP_TPM_PCMND_PROOSET;
+	pd->xwr.xwr_pdata = ;
+	pd->xwr.xwr_pdata = ;
+	return 0;
+}
+#endif
+
 /**
  * Note: This method must not dequeue cmd unless it reaches an invalid state.
  */
@@ -845,6 +865,44 @@ static int state_update(struct osdp_pd *pd)
 			pd->tstamp = osdp_millis_now();
 		}
 		break;
+#ifdef CONFIG_OSDP_TPM_ENABLED
+	case OSDP_CP_STATE_TPM_M00_SET:
+		osdp_tpm_m00_set(pd);
+		cp_cmd_dispatcher(pd, CMD_XWR);
+		cp_set_state(pd, OSDP_CP_STATE_TPM_M01_XMIT);
+		break;
+	case OSDP_CP_STATE_TPM_M00_REQ:
+		/**
+		 * Need to expose as API ?
+		 */
+		osdp_tpm_m00_req(pd);
+		cp_cmd_dispatcher(pd, CMD_XWR);
+		cp_set_state(pd, OSDP_CP_STATE_ONLINE);
+		break;
+	case OSDP_CP_STATE_TPM_M01_XMIT:
+		osdp_tpm_m01_xmit(pd);
+		cp_cmd_dispatcher(pd, CMD_XWR);
+		cp_set_state(pd, OSDP_CP_STATE_ONLINE);
+		break;
+	case OSDP_CP_STATE_TPM_M01_SCDONE:
+		osdp_tpm_m01_scdone(pd);
+		cp_cmd_dispatcher(pd, CMD_XWR);
+		cp_set_state(pd, OSDP_CP_STATE_ONLINE);
+		break;
+	case OSDP_CP_STATE_TPM_M01_SPE:
+		osdp_tpm_m01_spe(pd);
+		cp_cmd_dispatcher(pd, CMD_XWR);
+		cp_set_state(pd, OSDP_CP_STATE_ONLINE);
+		break;
+	case OSDP_CP_STATE_TPM_M01_SCSCAN:
+		/**
+		 * Need to expose as API ?
+		 */
+		osdp_tpm_m01_scscan(pd);
+		cp_cmd_dispatcher(pd, CMD_XWR);
+		cp_set_state(pd, OSDP_CP_STATE_ONLINE);
+		break;
+#endif
 	case OSDP_CP_STATE_OFFLINE:
 		if (osdp_millis_since(pd->tstamp) > OSDP_CMD_RETRY_WAIT_MS) {
 			cp_reset_state(pd);
@@ -877,6 +935,13 @@ static int state_update(struct osdp_pd *pd)
 #endif /* CONFIG_OSDP_SC_ENABLED */
 		cp_set_state(pd, OSDP_CP_STATE_ONLINE);
 		break;
+#ifdef CONFIG_OSDP_TPM_ENABLED
+	case OSDP_CP_STATE_TPM_SETUP:
+		/**
+		 * To be done, requires user configuration option when initializing OSDP stack
+		 */
+		break;
+#endif
 #ifdef CONFIG_OSDP_SC_ENABLED
 	case OSDP_CP_STATE_SC_INIT:
 		osdp_sc_init(pd);
